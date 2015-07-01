@@ -126,16 +126,16 @@ Important Files to Update:
 
 		An example line should be as follows:
 
-		bodypart/StudyDescription, k for adult,age 10-15,age 5-10,age 1-5,for < 1
+		bodypart/StudyDescription, k for adult,age 10-15,age 5-10,age 1-5,for <1
 		Abd,.015,.030,.040,.060,.098
 
 
 	-RegressionFeaturesDefault.csv - Contains the coefficients for a default
-		regression model to be used in case RE3 encounters a new study description.
+		regression model to be used if RE3 encounters a new study description.
 
  
-	-Exceptions.txt - Each line specifies changing a study description to a different
-			one. For instance, the line "CTAbdomenMultiphase, 
+	-Exceptions.txt - Each line specifies changing a study description to a 
+			different one. For instance, the line "CTAbdomenMultiphase, 
 			CTAbdomenTriphase" changes all instances of the multiphase to 
 			triphase. Useful for separating multiphase exams. Can be left 
 			blank.
@@ -148,7 +148,7 @@ Important Files to Update:
 Overscan Equations:
 
 	Located within the subroutine get_header_data are equations that calculate the 
-	overscan DLP values for the different scanners. Because this is scanner specific,
+	overscan DLP values for the different scanners. Since this is scanner specific,
 	we recommend calculating your own regression models for your scanners and
 	replacing what we have in there.
 
@@ -170,7 +170,7 @@ There are two methods to run RE3:
 
 	-nospec			Not running for a specific exam (overrides config)
 	-p			Look at only pediatric patients
-	-public			Put dose reports in the public folder (used by the Web UI).
+	-public			Put dose report in a "public" folder, used by the Web UI
 	-r "date"		Creating a report from pre-existing data for the date
 				Format date as YYYYMMDD-YYYYMMDD.
 	-prot "protocol"	Running for only a specific protocol
@@ -190,14 +190,14 @@ There are two methods to run RE3:
 	-To start the UI, from the command line, go to the directory with the files, 
 	then type
 		perl startUI.pl
-	-This should pop open the Web UI, from which you will have to select the location
+	-This should open the Web UI, from which you will have to select the location.
 	of the configuration file, and the types of options that you would like to run
 	the program in.
-	-Hit Run RE3
+	-Press "Run RE3".
 	-After RE3 is done running, you should be redirected to the dose report.
 	-To stop the program, hit Quit on the main page of the options menu.
-	-This method is particularly helpful to create outlier dose reports for a variety
-	of date ranges
+	-This method is particularly helpful to create outlier dose reports for a
+	variety of date ranges.
 
 
 The final data will be split into two main files: 
