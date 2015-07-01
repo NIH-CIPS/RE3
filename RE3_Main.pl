@@ -1,21 +1,24 @@
 #!C:/usr/bin/env perl
-#use lib 'Y:/weisenthal/perl64/site/lib';
-#use lib 'Y:/weisenthal/perl64/lib';
+
+#This is RE3, the radiation exposure outlier detection/monitoring system
+#Author: SJW (samweisenthal@gmail.com) Updated by: WCK (william.kovacs@nih.gov)
+#perltidied
+#Configuration contains everything for interacting with PACS and directories as well as switches
+#In order to run this program, it is necessary to update the information in the configuration file, such as aetitle
+#and have the location of this file as the first argument.
+
 use File::Find;
 use File::Copy;
 use XML::Simple;
-use Data::Dumper;
 use Time::HiRes qw(gettimeofday tv_interval);
 use File::Path qw(remove_tree);
-use Win32::OLE qw(in with);
 use POSIX qw (strftime);
 use POSIX qw <mktime>;
 use Win32::Job;
 use List::Util qw(min max);
 use List::MoreUtils qw/ uniq /;
 use MakeRegression;
-use File::Copy "mv";
-use RE3reportFigureGeneratorFix;
+use RE3reportFigureGenerator;
 use DetectOutliers;
 use PDF::API2;
 use PDF::Table;
@@ -23,17 +26,8 @@ use Math::Round;
 use File::Slurp qw(slurp);
 use Encode;
 
-
-#Everything in this script respects 'use strict' except the call to the CAD system. I was unable to figure out a way to call it so that it timed out and respected strict, hence the comments. 
 use strict;
 use warnings;
-#no strict "subs";
-
-#This is RE3, the radiation exposure outlier detection/monitoring system.
-#Author: SJW (samweisenthal@gmail.com)
-#perltidied
-#Configuration contains everything for interacting with PACS and directories as well as switches
-
 
 my $NumbArguments =@ARGV;
 
@@ -45,8 +39,6 @@ if ( $NumbArguments < 1 ) {
 
 # read argument
 my $config_file     = $ARGV[0];
-
-#my $config_file = "C:/Users/cipsadmin/desktop/weisenthal/radiation/config.xml";
 
 print "-RE3-\n";
 my $timestamp = &get_time;
@@ -111,7 +103,7 @@ my $encoding             = $config->{encoding};
 my $secureOn             = $config->{secureOn};
 my $delete_dumped_data   = $config->{delete_dumped_data};
 
-#The following sectoin takes care of any tags that are added to the command line, so that people don't have to change the config file every time.
+#The following section takes care of any tags that are added to the command line, so that people don't have to change the config file every time.
 my $report_path="$prog_path/reports";
 my $public;
 my $dateReport;
@@ -249,13 +241,14 @@ elsif ( $updateModel == 0 ) {
     print "Not updating model. Reconfigure in $config_file\n";
 }
 
+#Hashes containing the kfactors to convert DLP to estimated dose, as given by study description or body region.
 my %kfactorStudy = &setUpStudyKfactor;
 my %kfactorBody = &setUpBodyKfactor;
 
 #start a hash to keep track of processed exams and not reprocess already processed exams. This is mainly for prospective use.
 my %processed_exams = ();
 
-#Scheduler can be set up in the configuration file so that it only runs at night, for example. This is a newer add-on, so it is beta
+#Scheduler can be set up in the configuration file so that it only runs at night, for example.
 if ( $use_scheduler == 1 ) {
     print
 "Using scheduler since scheduler switch = $use_scheduler. Change this switch in $config_file.\n";
@@ -312,24 +305,24 @@ my $final_search = "$prog_path/search_parameters.csv";
 my $ModelDirectory = "$prog_path/Model";
 unless ( -e $ModelDirectory ) { mkdir $ModelDirectory; }
 
+#Generates a report of already collected data, without retrieving any information from the PACS
 if($onlyReport){
     my $numPatients;
     my $numExams;
     print "Not acquiring new data; only generating a report";
     my @missingExams;
-    #Can move this to a method, so not repeated so many times throught this all...
     if(!($run_specific_exam)){
      opendir(DIR, $ModelDirectory);
+            #Creates the regression graphs for the study descriptions included in the data series to be reported
             while (readdir(DIR)){
                 
                 if ($_ ne "." && $_ ne ".." && $_ =~ m/ModelData/g && (!($reportProtocol)|| $_=~ m/$reportProtocol.csv/g)){
                     my $studyDesc=substr($_,19);
                     $studyDesc=substr($studyDesc,0,-4);
-                    #print "DESC: $studyDesc\n";
                     my $regFeature = "$ModelDirectory/$_";
                     $regFeature =~ s/ModelData/Features/;
                     if(-e $regFeature){
-                        print "REG FEATUY: $regFeature\n";
+                        print "REG FEATUR: $regFeature\n";
                         RE3reportFigureGeneratorFix::genRegFig("$ModelDirectory/$_",$figureCutoffAge,$figureStart,$figureEnd,$regFeature, $studyDesc,$prog_path);
                     }
                     else{
@@ -382,7 +375,7 @@ my %exceptions;
 #make log directory if doesn't already exist
 unless ( -e $log_dir ) { mkdir $log_dir; }
 
-my $CorrCheck = "$prog_path/1_1_correspondencer_new_ON_FLY.pl";
+my $CorrCheck = "$prog_path/1_1_correspondencer.pl";
 my $DeteCheck = "$prog_path/DetectOutliers.pm";
 my $MakeCheck = "$prog_path/MakeRegression.pm";
 
@@ -392,22 +385,22 @@ print "Checking that they are there...\n";
 if (-e $CorrCheck and -e $DeteCheck and -e $MakeCheck){
     print "Found $CorrCheck, found $DeteCheck, and found $MakeCheck. Looks good!\n";
 }else{
-    print "Missing one of these in $prog_path: $CorrCheck or $DeteCheck or $MakeCheck...Consult the source code (around line 183) to turn this check off, but dying for now.\n";
+    print "Missing one of these in $prog_path: $CorrCheck or $DeteCheck or $MakeCheck...Consult the source code to turn this check off, but dying for now.\n";
     die;
 }
 
 print "Also, if you plan to segment the body volume, make sure that the location of the CAD system is correct in $config_file (your current path is $CAD_path). If you do not have this CAD system, set the switch body_volume to 0 in the configuration file\n";
 
-
-    $timestamp = &get_time;
-    print "Timestamp $timestamp\n";
-    my ( $starttime, $startdate ) = split ' ', $timestamp;
-    my ( $m, $d, $y ) = split '\\.', $startdate;
-    $m = sprintf( "%2d", $m );
-    $m =~ tr/ /0/;
-    $d = sprintf( "%2d", $d );
-    $d =~ tr/ /0/;
-    my $today = "$y$m$d";
+#Get today's date
+$timestamp = &get_time;
+print "Timestamp $timestamp\n";
+my ( $starttime, $startdate ) = split ' ', $timestamp;
+my ( $m, $d, $y ) = split '\\.', $startdate;
+$m = sprintf( "%2d", $m );
+$m =~ tr/ /0/;
+$d = sprintf( "%2d", $d );
+$d =~ tr/ /0/;
+my $today = "$y$m$d";
     
     
 #Record all the configurations for this run to a file
@@ -425,6 +418,7 @@ if(!$secureOn){
     print CL @Configs;
     print CL "*************************************************************\n";
 }
+#If have secure mode on, change the encoding of the log file.
 else{
     my $encryptedLine = encode($encoding, $starttime);
     print CL "$encryptedLine\n";
@@ -436,7 +430,7 @@ else{
 }
 close CL;
 
-#File used to force certain protocols into a study description, useful to separate triphsae vs biphase multiphase exams.
+#File used to force certain protocols into a study description, useful to separate triphsae vs biphase multiphase exams, or to ensure certain protocols are labelled correctly.
 open(EXCEP,"<",$exceptions);
 while(<EXCEP>){
     my @values = split(',', $_);
@@ -477,7 +471,7 @@ elsif ( $console_exit == '0' ) {
     $exit_flag = "/k";
 }
 
-#A checkpoint before running to allow the user to check their settings.
+#A checkpoint before running the engine proper to allow the user to check their settings.
 print "Would you like to continue (Y/N) ? ";
 my $userword = <STDIN>; # 
 chomp $userword; 
@@ -498,15 +492,15 @@ if ( $list_switch == 1 ) {
     $list = "$prog_path/$list_accession";
     open( LIST, "<$list" ) or die "Can't open $list because $!\n";
 
-    #print the labels to the results
+    #print the labels to the results files
     &printLabels( $one_to_one_series, $one_to_one_study );
 
     my @WholeList = <LIST>;
     chomp @WholeList;
 
-    #print @WholeList;
     my $ListSize    = @WholeList;
     my $ListCounter = 1;
+    #Goes through list of accession numbers and runs the main_subroutine on them
     foreach (@WholeList) {
 
         #print "$_\n";
@@ -523,11 +517,8 @@ if ( $list_switch == 1 ) {
     }
     close LIST;
 
-    print "\n\n If you are missing an accession number in the results from your list and there are other ones processed that were not included in your list, 
-        then the ones you had listed may have been duplicates of the originals that are located in the results. \n\n";
-
 #if the list switch is off, then just run it continuously. NOTE: now, the logs might get large. It's good to start and stop it sometimes so they clear. Prospectively, if stopped and started it will pick up on that DAY.
-#retro and prospectively, it will be run like this. Retrospectively, if stopped, it will start at the beginning of the date range again.
+#retro and prospectively, it will be run like this. Retrospectively, if stopped, it will start at the beginning of the date range again, so change configurations accordingly.
 }
 else {
     &printLabels( $one_to_one_series, $one_to_one_study );
@@ -546,7 +537,7 @@ sub printLabels {
     open( OTO, ">>$one_to_one_series" )
       or die "Can't open $one_to_one_series because $!\n";
     print OTO
-"MRN,accession,protocol,protocol no,series no,# images,scanner_type,scanner_maker,series_description,average_ctdindices,DLP_from_indices,pitch,single_collimation_width,total_collimation_width,kvp,scanlength (last location - first location),end_of_uid,age,exposure time,avg exposure,sum exposure,kernel,study date,image_type,acq date,acq time,acq number,acq date_time,slice loc 0, slice location,body part,length from thickness (imagecounter*thick),slice thickness,table_speed,body volume,start time,end time,scan time,exp 0,exp f, studydes,name,gender,scannedvol,Dw,StudyTime,StartConTime,EndConTime,Est Dose,Physician,Filter,irradiationUID\n";
+"MRN,accession,protocol,protocol no,series no,# images,scanner_type,scanner_maker,series_description,average_ctdindices,DLP_from_indices,pitch,single_collimation_width,total_collimation_width,kvp,scanlength (last location - first location),end_of_uid,age,exposure time,avg exposure,sum exposure,kernel,study date,image_type,acq date,acq time,acq number,acq date_time,slice loc 0, slice location,body part,length from thickness (imagecounter*thick),slice thickness,table_speed,series time,start time,end time,scan time,exp 0,exp f, studydes,name,gender,scannedvol,Dw,StudyTime,StartConTime,EndConTime,Est Dose,Physician,Filter,irradiationUID\n";
     close OTO;
 
     open( OTO2, ">>$one_to_one_study" )
@@ -558,7 +549,7 @@ sub printLabels {
 
 }
 
-#The subroutine that performs all of the actions (previous was getting things set up)
+#The subroutine that performs all of the actions (previous code was setting everything up)
 sub get_IM {
 
     open( MLOG, ">$move_log" ) or die "Can't open $move_log because $!\n";
@@ -598,38 +589,19 @@ sub get_IM {
 
         print "Querying exclusively for $Acc_from_list\n";
          exe_query( '', '', '=STUDY', '', '', '', '', '', '', '',
-            "=$Acc_from_list", '' );
+            "=$Acc_from_list", '', '', '', '', '', '', '' );
         
     }
     else {
         if($run_specific_exam != 1 ){
             exe_query( '', '', '=STUDY', "=$study_date", "$description",
-                "=$modality", '', '', '', '', "=*CT*", '' );
+                "=$modality", '', '', '', '', "=*CT*", '', '', '', '', '', '', '' );
         }
 
         if ( $run_specific_exam == 1 ) {
             exe_query( '', '', '=STUDY', '', "$description", "=$modality", '',
-                '', '', '', "=$specific_accession", '' );
-        #Need to check if there are any other acquisitions that are duplicates of the listed one. Not necessary, if looking for a specific one
+                '', '', '', "=$specific_accession", '', '', '', '', '', '', '' );
         
-        # open(QLOG, '<', $tmp_query_log ) or print QLOG "Can't open $_[0] because $!\n";
-        # my $studyID;
-        # my $mrnCheck;
-        # while ( my $line = <QLOG> ) {
-           
-            # if($line =~ m/0020,0010/g){        #Study ID
-            
-                # ($studyID) = $line =~ /\[(.+?)\]/;
-            # }
-            # elsif ( $line =~ m/0010,0020/g ) {    #get MRN
-                # ($mrnCheck) = $line =~ /\[(.+?)\]/;
-                
-            # }
-        # }
-        # close QLOG;
-        # print "ID: $studyID \n\n";
-        # exe_query( "=$mrnCheck", '', '=STUDY', '', '', '', '', '', '', '',
-            # '', '','','','',"=$studyID" );
         }
 
     }
@@ -702,7 +674,7 @@ sub get_IM {
                 "average_ctdindices,DLP_from_indices,pitch,single_collimation_width,total_collimation_width,",
                 "kvp,scanlength (last location - first location),end_of_uid,age,exposure time,avg exposure,sum exposure,kernel,",
                 "study date,image_type,acq date,acq time,acq number,acq date_time,slice loc 0, slice location,body part,",
-                "length from thickness (imagecounter*thick),slice thickness,table_speed,body volume,start time,end time,",
+                "length from thickness (imagecounter*thick),slice thickness,table_speed,series time,start time,end time,",
                 "scan time,exp 0,exp f, studydes,name,gender,scannedvol,Dw,StudyTime,StartConTime,EndConTime,EstDose\n";
             close CALCRES;
             open( CALCRESL, ">>",$calcResultsLog )
@@ -712,7 +684,7 @@ sub get_IM {
                 "average_ctdindices,DLP_from_indices,pitch,single_collimation_width,total_collimation_width,",
                 "kvp,scanlength (last location - first location),end_of_uid,age,exposure time,avg exposure,sum exposure,kernel,",
                 "study date,image_type,acq date,acq time,acq number,acq date_time,slice loc 0, slice location,body part,",
-                "length from thickness (imagecounter*thick),slice thickness,table_speed,body volume,start time,end time,",
+                "length from thickness (imagecounter*thick),slice thickness,table_speed,series time,start time,end time,",
                 "scan time,exp 0,exp f, studydes,name,gender,scannedvol,Dw,StudyTime,StartConTime,EndConTime,EstDose\n";
             close CALCRESL;
             my $calc_results_slice;
@@ -729,7 +701,7 @@ sub get_IM {
                     "ctdindices,DLP_from_indices,pitch,single_collimation_width,total_collimation_width,",
                     "kvp,scanlength (last location - first location),end_of_uid,age,exposure time,avg exposure,exposure,kernel,",
                     "study date,image_type,acq date,acq time,acq number,acq date_time,slice loc 0, slice location,body part,",
-                    "length from thickness (imagecounter*thick),slice thickness,table_speed,body volume,start time,end time,",
+                    "length from thickness (imagecounter*thick),slice thickness,table_speed,series time,start time,end time,",
                     "scan time,exp 0,exp f, studydes,name,gender,scannedvol,Dw,StudyTime,StartConTime,EndConTime,EstDose\n";
                 close CALCRESS;
 
@@ -775,7 +747,7 @@ sub get_IM {
             #####################################
 
             exe_query( '', '', "=$retrieval", '', '', '', '', '', '', '',
-                "=$accession_study_ref->[$i]", '', '', '', '', '', "=1" );
+                "=$accession_study_ref->[$i]", '', '', '', '', '', "=1", '' );
 
             #now, after the series query, get all of the series-level info. This sub is almost identical to get_exam_info
             my (
@@ -790,13 +762,13 @@ sub get_IM {
             ) = get_series_info( $tmp_query_log, "$retrieval" );
 
             #Look for series whose times indicate that they were performed at fully overlapping times (this does not prevent those that 
-            #only have partial overlapping)
+            #only have partial overlapping). Used to speed up download, as not as comprehensive as acquisition time, whose check is performed after images are downloaded
             
             my ($deleteRef,$hashDelRef) = checkContentTime($contentTime_ref,$series_UIDs_ref,$ImagesInSeries_series_ref,$Accession_series_ref,$sLoc_ref, $imageTypes_ref,$MRN_study_ref->[$i],$StudyDate_study_ref->[$i], $total_series,\%seriesNotInclude);
             my @deleting = @{$deleteRef};
             %seriesNotInclude=%{$hashDelRef};            
             
-            #Sometimes a dose structured report with more accurate dose information will be available, so grabs that.
+            #Sometimes a dose structured report with exact dose information will be available, so if present, collect that.
             my $SRfile = getStructuredReport("=$retrieval",$accession_study_ref->[$i],$tmp_image_path, $dumped_data);
             
             
@@ -813,7 +785,7 @@ sub get_IM {
                 my $series_Dw;
 
                 $retrieval_series = "SERIES";
-
+                #This takes care of the deleting by not including them in the retrieval
                 if(!$deleting[$a]){
                     #Note that this image filter makes it avoid the topograms. Those usually contribute about 10 mGy*cm, which is negligable.
                     if (
@@ -951,7 +923,7 @@ sub get_IM {
                                 }
                             }
                             close ACH;
-                            #Apparently there was a case that had a combination of original and derived, so this tries to take care of that.
+                            #Apparently there was a case that had a combination of original and derived, so this tries to take care of that (Either first few starting or ending as derived images).
                             print "The value of the Derived Check is $derivCheck where 0=both original, 2= both derived, 1= the first and last image do not share the same image type\n";
                             #A value of 0 corresponds with both files being original, 2 with both derived, and 1 with the files not matching.
                             if($derivCheck == 1){
@@ -980,8 +952,6 @@ sub get_IM {
                                     and $ImagesInSeries_series_ref->[$a] <
                                     $BV_max )
                                 {
-#May need this depending on robustness of body volume measurement tool. Would exclude DE_CAP, ART, VEN
-#and ( $SeriesDescription_series[$i] !~ m/$series_description_6/gi ) and  ( $SeriesDescription_series[$i] !~ m/$series_description_7/gi ) and  ( $SeriesDescription_series[$i] !~ m/$series_description_8/gi ) ){
                                     print "\tRunning program to measure scanned volume on the series in $tmp_image_path.\n";
 
                                     my $CAD_command =
@@ -1004,8 +974,6 @@ sub get_IM {
                                     #eg, using $job->status. In the end, just using the return value of the run() command worked.
                                     my $run_return =
                                       $job->run($max_CAD_time_sec);
-
-                                    #my $job_stat = $job->status;
 
                                     #open CAD results and take results. If this doesn't work, print noValue
                                     my $volume_measurements =
@@ -1038,8 +1006,8 @@ sub get_IM {
                                       #Since it already has the info in the file
                                         unlink $volume_measurements;
 
-#Since Perl apparently converts a string to 0 if it's added to a number, this is extremely important. 
-#The downstream scripts will search for these NoValue, NoIm, and NoAx flags to make sure they don't accidentally add them as 0 (which would make the SBV far off)
+#Since Perl ignores string in addition, acting like a 0, this is extremely important. 
+#The downstream scripts will search for these NoValue, NoIm, and NoAx flags to make sure they don't accidentally add them as 0 (which would make the SBV far off if SBV based on total volume)
 #CASE 1: if it was supposed to be processed by the BV program but for some reason no results were made, print NoValue in place
                                     }
                                     else {
@@ -1118,9 +1086,9 @@ sub get_IM {
             print CALCRES "END\n";
             close CALCRES;
 
-    #This needs to be made a subroutine. It takes like a second, so it doesn't really matter, but in the future, should be a subroutine (not external perl script)
+    #This can be made into a subroutine. It takes like a second, so it doesn't really matter, but in the future, should be a subroutine (not external perl script). Easier to debug when separate though.
            my $correspond_cmd =
-"start cmd.exe $exit_flag $perl_path $prog_path/1_1_correspondencer_new_ON_FLY.pl $calc_results $study_date $config_file $updateData $calc_results_slice";
+"start cmd.exe $exit_flag $perl_path $prog_path/1_1_correspondencer.pl $calc_results $study_date $config_file $updateData $calc_results_slice";
             print
               "\tCalling 1-1 correspondencer with command\n\t$correspond_cmd\n";
             system $correspond_cmd;
@@ -1293,6 +1261,7 @@ sub get_IM {
             }
         }
         else{
+            #Creates the figure for only one day
             if($figureDaily){
                     $figureStart = $study_date;
                     $figureEnd = $study_date;
@@ -1331,16 +1300,17 @@ sub get_IM {
         }
         
     }
+    #Generates a pdf of a dose report
     genReport($figureStart, $figureEnd, $numPatients, $numExams, @missingExams);
     
-    #Deletes all the subfolders in these directories to prevent massive build up of empty folders if so desired
+    #Deletes all the subfolders in these directories to prevent massive build up of empty folders, if so desired
     if ( $delete_DICOM_im == 1 ) {
         print "\tCleaning up the DICOM Image Directory since delete_dicom_im switch = $delete_DICOM_im.\n";
         remove_tree("$prog_path/DICOM_images",{keep_root => 1});                         
     }
     if ( $dumped_data and $delete_dumped_data == 1 ) {
         print "\nCleaning dumped data since delete_dumped_data switch = $delete_dumped_data. To change this switch, consult $config_file.\n";
-#If switch to delete dumped data is set in configuration file, delete dumped data after extracting relevant fields. Also, remove any iamges that were moved to the corresponding derived folder.
+#If switch to delete dumped data is set in configuration file, delete dumped data after extracting relevant fields. Also, remove any images that were moved to the corresponding derived folder.
         remove_tree($dumped_data);
         remove_tree("$prog_path/dumped_data", {keep_root => 1});
     }
@@ -1370,8 +1340,9 @@ sub get_IM {
     else {
         print "sleeping for $time_between_queries seconds\n";
         
-        #to not overload the PACS
+        #to not overload the PACS, sleeps between queries
         sleep($time_between_queries);
+        #Checks to see if the day has changed after sleeping, so it can search for exams on the new day
         my $timestamp = &get_time;
         print "Timestamp $timestamp\n";
         my ( $currenttime, $startdate ) = split ' ', $timestamp;
@@ -1416,15 +1387,6 @@ sub exe_query {
     print "Querying with the command:\n$cmd_query\n";
     &persevering_call( $cmd_query, $tmp_query_log, "10" );
 
-    #log the query results in log file, this is no longer in use.
-    # open( FH, '<', $tmp_query_log );
-    # while ( my $line = <FH> ) {
-
-        # #print QLOG $line;
-    # }
-    # close FH;
-
-    #print QLOG "\n\n";
 }
 
 sub get_exam_info {
@@ -1434,12 +1396,7 @@ sub get_exam_info {
     print "IN CHECK PATIENT\n";
 
     #parse study-level query results and return the number of patients found
-    ########################
-    # undef @study_UIDs;
-    # undef @MRN_study;
-    # undef @instances;
-    # ########################
-    ########################
+
     #define all arrays
     my @StudyDate_study;
     my @study_UIDs;
@@ -1509,45 +1466,16 @@ sub get_exam_info {
     #print "Found @accession_study\n";
 
     close TMALOG;
-###########################################
-    # #clear all arrays
-    # undef @StudyDate_study;
-    # #undef @study_UIDs;
-    # #undef @MRN_study;
-    # undef @modality_study;
-    # undef @Studytime;
-    # #undef @instances;
-    # return $j;
-##########################################
-#########################################
-   
     
     return ( $number_exams, \@StudyDate_study, \@study_UIDs, \@MRN_study,
         \@modality_study, \@Studytime, \@instances, \@accession_study, \@studyIDs );
 
-    #clear all arrays Why is this here, if it's after the return statement...?
-    # @StudyDate_study = ();
-    # @study_UIDs      = ();
-    # @MRN_study       = ();
-    # @modality_study  = ();
-    # @Studytime       = ();
-    # @instances       = ();
-    # @accession_study = ();
-    # @studyIDs        = ();
-###########################################
 }
 
 sub get_series_info {
 
 #written originally by JH, modified by SW
-#clear these arrays first instead of after; their elements must be defined since they are piped for use into the main script
-# undef @SeriesNumber_series;
-# undef @StudyDate_series;
-# undef @ImagesInSeries_series;
-# undef @Series_times;
-# undef @SeriesDescription_series;
-# undef @Accession_series;
-# undef @series_UIDs;
+#Modified by WCK to filter out derived images.
 
     #define arrays
     my @StudyDate_series;
@@ -1668,7 +1596,6 @@ sub get_series_info {
         }
     }
 
-    # my $k            = 0;
     my $total_series = @SeriesNumber_series;
     print "\n\n    Found $total_series series...\n";
     
@@ -1688,20 +1615,6 @@ sub get_series_info {
         \@series_UIDs,              \@contentTimes,
         \@sLoc,                     \@imageTypes
     );
-
-    #empty arrays. Again, why are these after the return statement?
-    # @StudyDate_series         = ();
-    # @Accession_series         = ();
-    # @Series_times             = ();
-    # @Modality_series          = ();
-    # @StudyDescription_series  = ();
-    # @SeriesDescription_series = ();
-    # @PatientName_series       = ();
-    # @MRN_series               = ();
-    # @SeriesNumber_series      = ();
-    # @ImagesInSeries_series    = ();
-    # @Birthday_series          = ();
-    # @series_UIDs              = ();
 
 }
 
@@ -1757,10 +1670,11 @@ sub persevering_call
 
 sub image_check {
 
-    #this sub ensures that all images have uploaded to a series
+    #this sub ensures that all images have uploaded to a series (useful for prospective running and a study was only just beginning to upload)
 
     my $count = 0;
     my $item  = $_[0];
+    #Queries PACS to see number of images present
     my $cmd_query =
 "$query_path --study --aetitle $aet_title --call $aec_title $aec_ip $aec_port -k 0008,0052=STUDY -k 0020,1208 -k 0008,0050=$item";
     print "\tIMAGE CHECK:Querying with command:\n$cmd_query\n";
@@ -1782,7 +1696,7 @@ sub image_check {
     my $images_before_query = $images_before;
     my $images_after_query  = "0";
 
-    #print "Have $images_before_query images before first query\n";
+    #Keeps checking images until there is no difference between number of images checked
     until ( $images_before_query == $images_after_query ) {
         print
 "\tIMAGE CHECK:Ensuring that all the images uploaded to the PACS...\n";
@@ -1871,6 +1785,7 @@ sub schedule_engine {
 #                                     }
 #Alternatively, for retrospective use, insert schedule_engine inside the study-processing loop so that the engine can process a large number of studies but still adhere to a schedule (e.g., if you want it not to run during the day)
 
+    #Gets a lot of time information
     $timestamp = &get_time;
     my ( $currenttime, $startdate ) = split ' ', $timestamp;
     my ( $hr, $min, $sec ) = split '\\:', $currenttime;
@@ -1882,8 +1797,6 @@ sub schedule_engine {
 
     my $day_start = $config->{day_start};
 
-    #my $day_start = 60000;
-    #my $day_end = 190000;
     my $day_end = $config->{day_end};
     print "Day start:$day_start. Day end:$day_end\n";
     my $until_night     = abs( time_elapsed($day_end) ) * 60;
@@ -1891,15 +1804,13 @@ sub schedule_engine {
     my $hrs_until_night = ( $until_night / 60 ) / 60;
     my $hrs_until_day   = ( $until_day / 60 ) / 60;
 
+    #If set to run at night, checks to see if it is within the user constraints
     if ( $nightly == 1 ) {
 
         if ( $currenttime < $day_start or $currenttime >= $day_end ) {
 
             print
 "Current time: $currenttime. This is in the range as determined by 'nightly' switch. Hence, continuing.\n";
-
-            # print "sleeping for $time_between_queries seconds\n";
-            # sleep($time_between_queries);
 
         }
         else {
@@ -1948,8 +1859,6 @@ sub schedule_engine {
 
         my $Ref_time = $_[0];
 
-        #print "Time in original format: $Ref_time\n";
-
         my $left_sec  = chop($Ref_time);
         my $right_sec = chop($Ref_time);
         my $seconds   = "$right_sec$left_sec";
@@ -1962,23 +1871,17 @@ sub schedule_engine {
         my $right_hr = chop($Ref_time);
         my $hours    = "$right_hr$left_hr";
 
-        #print "Original time, reformatted: $hours:$minutes:$seconds\n";
+        
         my $elapsed_sec_study = 60 * 60 * $hours + 60 * $minutes + $seconds;
-
-#print "Time in seconds elapsed from 00:00:00 to ref_time: $elapsed_sec_study\n";
 
         my ( $sec, $min, $hour, $mday, $mon, $year ) = localtime();
 
-        #print "Current time: $hour:$min:$sec\n";
         my $elapsed_sec_now = 60 * 60 * $hour + 60 * $min + $sec;
-
-#print "Time in seconds elapsed from 00:00:00 until right now: $elapsed_sec_now\n";
 
         my $sec_diff    = $elapsed_sec_now - $elapsed_sec_study;
         my $min_between = $sec_diff / 60;
         $min_between = sprintf "%.2f", $min_between;
 
-        #print "\nDifference: $min_between\n";
         return $min_between;
 
     }
@@ -1986,7 +1889,7 @@ sub schedule_engine {
 }
 
 sub get_data {
-#Combined from a separate perl script, so reason for some of the repetitive stuff.     
+#Combined from a separate perl script, so reason for some of the repetitive stuff if present.     
 
 #calculates DLP from DICOM headers
 #this just sums ctdivols and multiplies that sum by the slice thickness. It's faster than the array method (get_data_from_images_CALC(arrays).pl), but not as transparent
@@ -2000,8 +1903,6 @@ sub get_data {
     my $calcResultsLog    = $_[7];
     my $SRfile            = $_[8];
 
-    #my $volume_log       = "$prog_path/Volumes_$name_tag.csv";
-    #my $slice_data = $config->{slice_data};
     print "______________________________\n\nStarting get_data.\n\n";
     print "Processing data in $dumped_data.\n\n";
     if ( !$dumped_data ) {
@@ -2033,7 +1934,7 @@ sub get_data {
 
     my @patients;
 
-    
+    #Grabs the data from the dumped DICOM headers
     &get_header_data( $dumped_data, $SerScanvol, $water_eq_diameter, $results,$calcResultsLog,$SRfile, $slice_results);
 
     print "Find results in $results.\n\n";
@@ -2074,7 +1975,7 @@ sub get_data {
         my $series_description;
         my $station_name;
         my $protocol_name;
-        my $protocol_number;
+        my $protocol_number = "";
         my $private_creator;
         my $scanner_type;
         my $scanner_maker;
@@ -2097,7 +1998,7 @@ sub get_data {
         my $single_collimation_width;
         my $scanlength;
         my $studyTime;
-        my $study_date;
+        my $study_date = "";
         my $body_volume;
         my $requesting_physician;
         my $filterType;
@@ -2152,11 +2053,14 @@ sub get_data {
         ######################
         opendir( DIR, $_[0] ) or die $!;
         
+        #Goes through the directory contianing dumped header information for each image, and gets that information
         while ( my $file = readdir(DIR) ) {
             my $myfile = "$_[0]/$file";
 
             #print "Looking at $myfile\n";
-
+            if($file =~ /\A\.\.?\z/){
+                next;
+            }
             open( FH, '<', $myfile );
             my %seen;
 
@@ -2170,8 +2074,7 @@ sub get_data {
 
                         if ( $seen{$key}) {
 
-                        #if the value is already seen once in the file, no need to take it again. this takes the FIRST value, then. this may not always be the best
-                        #print "Aleady got a value for $key\n";
+                        #if the value is already seen once in the file, no need to take it again. this takes the FIRST value, then. this may not always be the best, though not sure where it'll see it multiple times
 
                         } else {
 
@@ -2192,7 +2095,9 @@ sub get_data {
                                 #print "after '$line'\n";
 
                                 ($value) = $line =~ /FD (.+?) #/;
-                                ($value) =~ s/\s*$//;
+                                if($value){
+                                    ($value) =~ s/\s*$//;
+                                }
 
                                 #print "FD'$value'\n";
 
@@ -2264,14 +2169,10 @@ sub get_data {
 
                                 }
 
-                                #print "$tags{$key}(KEY $key):$value\n";
                                 if ( $key eq "0018,9345" ) {
                                     $ctdivol = $value;
-                                    #print "indice value: $value\n";
                                     $sum_of_ctdindices =
                                       $sum_of_ctdindices + $value;
-
-                                    #print "summer: $sum_of_ctdindices\n";
                                     $seen{$key} = '1';
                                 }
                                 
@@ -2298,7 +2199,6 @@ sub get_data {
 
                                     $series_no = $value;
 
-                                    #print "$value,";
                                     $seen{$key} = '1';
                                 }
 
@@ -2312,7 +2212,6 @@ sub get_data {
 
                                     $no_images = $value;
 
-                                    #print "instance num $value,";
                                     $seen{$key} = '1';
                                     $image_counter++;
                                 }
@@ -2370,7 +2269,6 @@ sub get_data {
 
                                 if ( $key eq "0020,1041" ) {
 
-                                    #print "Loc:$value,";
                                     push( @slice_locations, $value );
                                     $seen{$key} = '1';
 
@@ -2378,7 +2276,6 @@ sub get_data {
                                 
                                 if ( $key eq "0008,0030" ) {
 
-                                    #print "Loc:$value,";
                                     $studyTime = $value;
                                     $seen{$key} = '1';
 
@@ -2389,7 +2286,6 @@ sub get_data {
 
                                     $total_collimation_width = $value;
 
-                             #print "COLLIMATION: '$total_collimation_width'\n";
                                     $seen{$key} = '1';
 
                                 }
@@ -2398,7 +2294,6 @@ sub get_data {
 
                                     $single_collimation_width = $value;
 
-                            #print "COLLIMATION: '$single_collimation_width'\n";
                                     $seen{$key} = '1';
 
                                 }
@@ -2478,7 +2373,6 @@ sub get_data {
 
                                     $body_part = $value;
 
-                                    #print "body part $value\n";
                                     $seen{$key} = '1';
 
                                 }
@@ -2486,7 +2380,6 @@ sub get_data {
 
                                     $name = $value;
 
-                                    #print "body part $value\n";
                                     $seen{$key} = '1';
 
                                 }
@@ -2494,7 +2387,6 @@ sub get_data {
 
                                     $gender = $value;
 
-                                    #print "body part $value\n";
                                     $seen{$key} = '1';
 
                                 }
@@ -2516,6 +2408,7 @@ sub get_data {
             }
 
             ######
+            #Prints the information per slice if so desired
             if ( $slice_data == 1 ) {
 
                 unless ( !$MRN ) {
@@ -2574,6 +2467,7 @@ sub get_data {
         }
         close DIR;
 
+        #Gather specific information from collected ones
         $size_ex_array = @exposures;
         $exp_0         = $exposures[0];
         $size_ex_array = $size_ex_array - 1;
@@ -2588,6 +2482,7 @@ sub get_data {
         $slice_location_0      = min @slice_locations;
         $slice_location_f      = max @slice_locations;
         $scanlength            = ( $slice_location_f - $slice_location_0 ) / 10;
+        #If scan length doesn't register, set values so it will be flagged.
         if ( $scanlength == '0' ) {
             print
 "There wasn't a slice location for this one OR it really has no length..making scan length $image_counter*$slice_thickness (#images*thickness)";
@@ -2601,13 +2496,13 @@ sub get_data {
             $scan_length = $image_counter * $slice_thickness;
             print "Assuming this is recon\n";
             $scanlength  = '0';
-            $series_time = '9999'
-              ; #set these two far apart so it gets flagged as 0 and not counted
+            $series_time = '9999'; #set these two far apart so it gets flagged as 0 and not counted
 
         }
 
 #if this difference is too large, then it was most likely one of the weird series that has two series within. if these are all reconstructions, those can be left out. if they aren't, TBC...
 #Theory: This only happens with DE, and, when this is the case, at least one of the series inside a series is a reconstruction AND it contains PP,MPR,or VNC in its series description.
+#This is not the case, older Toshiba multi phase exams would put two series in a single one sometimes.
 #Hence, filtering out series with PP, MPR, or VNC from even being retrieved should solve this problem.
 #Also, might make the directory name based on uid, not just series number.
 
@@ -2620,8 +2515,10 @@ sub get_data {
         $DLP_from_indices = $average_ctdindices * $scanlength;
         my $overscan = 0;
         #Adding overscan values based on regression models to the resulting DLP values to estimate final ones.
+        #NOTE: The overscan equations are only applicable to one's own institution and should be changed based on their own
+        #scanners by calculating new overscan equations
         unless ( $DLP_from_indices == '0' ) {
-            #Maybe include if pitch, as that header seems to relate with whether or not helical is being done/need overscan... also, philips never included it in their header...
+            
             if ( $scanner_maker =~ m/Siemens/gi ) {
                 $overscan =
                   40.98918311 + 0.009254232 * $exp_0 + 0.014539485 * $exp_f;
@@ -2665,7 +2562,7 @@ sub get_data {
             ($DLP_from_indices,$average_ctdindices)=getSRDose($irradiationUID,$SRfile);
         }
         
-        #Some are not done helically, and filters out by pitch (as pitch shows that its helical or not)
+        #Some are not done helically, and filters out by pitch (as pitch is a way to tell if its helical or not)
         if (    ($st_description eq "CT Chest (High Resolution)" or $st_description eq  "CT Lung - Limited Prone Select Slices")
             and ($scanner_maker eq "SIEMENS" || $scanner_maker eq "TOSHIBA") and !$SRfile)
         {
@@ -2689,11 +2586,12 @@ sub get_data {
         
 
 #This was done for the csv files. So, output for some of the fields, e.g., series description (since it often has a comma), is slightly diff from input fields.
+#Replaces commas in any of these fields to underscores
         $series_description =~ s/\,/_/g;
         $scanner_type =~ s/\,/_/g;
         $scanner_maker =~ s/\,/_/g;
         $protocol_name =~ s/\,/_/g;
-        $protocol_number =~ s/\,/_/g;
+        if($protocol_number){$protocol_number =~ s/\,/_/g;}     #This value is sometimes not given (and may be institution specific), so we need to make sure we have it
         $series_description =~ s/\,/_/g;
         $end_of_uid =~ s/\,/_/g;
         $kernel =~ s/\,/_/g;
@@ -2702,7 +2600,7 @@ sub get_data {
         $body_part =~ s/\,/_/g;
         $st_description =~ s/\,/_/g;
 
-        #Get rid of Y and leading 0s. Convert months to year.
+        #Get rid of Y and leading 0s. Convert months to year (only happens if younger than a year).
         $age =~ s/0*(\d+)/$1/;
         $age =~ s/Y//g;
         if($age=~m/M/){
@@ -2713,8 +2611,7 @@ sub get_data {
         $st_descr =~ s/[^a-zA-Z0-9]*//g;
         my $estDoseSeries = &calcEstDose($st_descr,$DLP_from_indices, $age, $body_part);
         
-#print "new $series_description\n";
-#print "AFTER GET_DATA printing scanvol $SerScanvol and Dw $water_eq_diameter to calc results...\n";
+        #Puts information in file to be accessed by 1-1 correspondencer
         unless ( !$MRN ) {
             open( LOG, ">>",$results ) or die "can't open LOG bc $!\n";
             my $calcPrint = "$MRN,".
@@ -2772,6 +2669,7 @@ sub get_data {
             if(!$secureOn){
                 print LOG $calcPrint;
             }
+            #Changes the encoding so the calculated values are not legible
             else{
                 $calcPrint = encode($encoding,$calcPrint);
                 print LOG "$calcPrint\n";
@@ -2847,7 +2745,8 @@ sub get_data {
         #print "Done.\n";
 
     }
-
+    
+    #Sets up the hash for the values to be examined during get_header_data
     sub define_tags {
 
         my %tags = (
@@ -3036,7 +2935,7 @@ sub checkContentTime{
     
     #Grabs all series that a patient underwent and occurred on the same day as the current study
     exe_query( "=$mrn", '', "=IMAGE", "=$date", '', "=CT", '', '', '', '',
-                                "=CT*",'', '', '', '', '', "=1" );
+                                "=CT*",'', '', '', '', '', "=1", '' );
      my (
                 $otherTotalSeries,                 $StudyDate_series_ref,
                 $Accession_series_ref,         $Series_times_ref,
@@ -3056,6 +2955,7 @@ sub checkContentTime{
     for (my $i =0; $i<=$#seriesUIDs; $i++){
         $sLoc1=0;
         my $endTime=0;
+        print "\n\nComparing against $seriesUIDs[$i]\n\n";
         #Only look at those that aren't decided to be deleted
         if($notInclude{$accNum}{$seriesUIDs[$i]}){
             $needToDelete[$i] = 1;
@@ -3065,12 +2965,12 @@ sub checkContentTime{
                 if(!$needToDelete[$j]){
                   #  print "The content times are $contentTimes[$i] and $contentTimes[$j]\n";
                    
-                    my $sLoc2;
+                    my $sLoc2 ="";
                     #To reduce number of queries, checks to see if it already has performed this query. Otherwise grab ending slice location and time
                     if(!$sLoc1){
                         
                         exe_query( '', '', "=IMAGE", '', '', '', '', '', '', '',
-                            "=$accNum",'', "=$seriesUIDs[$i]", '', '', '', "=$numImages[$i]" );
+                            "=$accNum",'', "=$seriesUIDs[$i]", '', '', '', "=$numImages[$i]", '' );
                         open( TMALOG, '<', $tmp_query_log ) or print TMALOG "Can't open $tmp_query_log because $!\n";
                         while ( my $line = <TMALOG> ) {
                             
@@ -3089,7 +2989,7 @@ sub checkContentTime{
                     }
                      
                     exe_query( '', '', "=IMAGE", '', '', '', '', '', '', '',
-                                "=$accNum", '', "=$seriesUIDs[$j]", '', '', '', "=$numImages[$j]" );
+                                "=$accNum", '', "=$seriesUIDs[$j]", '', '', '', "=$numImages[$j]", '' );
                     open( TMALOG, '<', $tmp_query_log ) or print TMALOG "Can't open $tmp_query_log because $!\n";
                         while ( my $line = <TMALOG> ) {
                                 
@@ -3105,6 +3005,7 @@ sub checkContentTime{
                             }   
                         }
                      close TMALOG;
+                     if(!$sLoc2){next;}
                      $length2 = abs($sLoc2-$sLoc[$j]);
                      print "The locs are $sLoc1 and $sLoc2\n";
                     if($contentTimes[$i]&&$contentTimes[$j]&&(($contentTimes[$i]<=$contentTimes[$j] && ($endContentTime1 >= $endContentTime2)) || ($contentTimes[$i]>=$contentTimes[$j] && ($endContentTime1 <= $endContentTime2)))){
@@ -3174,7 +3075,7 @@ sub checkContentTime{
                             if(!$endTime){
                                 
                                 exe_query( '', '', "=IMAGE", '', '', '', '', '', '', '',
-                                    "=$accNum",'', "=$seriesUIDs[$i]", '', '', '', "=$numImages[$i]" );
+                                    "=$accNum",'', "=$seriesUIDs[$i]", '', '', '', "=$numImages[$i]", '' );
                                 open( TMALOG, '<', $tmp_query_log ) or print TMALOG "Can't open $tmp_query_log because $!\n";
                                 while ( my $line = <TMALOG> ) {
                                     
@@ -3192,7 +3093,7 @@ sub checkContentTime{
                            }
                              
                             exe_query( '', '', "=IMAGE", '', '', '', '', '', '', '',
-                                        "=$otherAccession[$k]", '', "=$otherSeriesUID[$k]", '', '', '', "=$otherNumImages[$k]" );
+                                        "=$otherAccession[$k]", '', "=$otherSeriesUID[$k]", '', '', '', "=$otherNumImages[$k]", '' );
                             open( TMALOG, '<', $tmp_query_log ) or print TMALOG "Can't open $tmp_query_log because $!\n";
                                 while ( my $line = <TMALOG> ) {
                                         
@@ -3257,6 +3158,7 @@ sub checkContentTime{
     return \@needToDelete,\%notInclude;
 }  
 
+#Creates a pdf of a dose report. 
 sub genReport{
     
     #Setting up variables for the graph. data is the table representation, acc is the accessions, obs is the observed DLP, pred are the predicted DLPS, res are the residuals
@@ -3435,7 +3337,7 @@ sub genReport{
 
         my $outTable = PDF::Table->new();
         $outTable->table($pdf,$page,$data,
-        x=>75, w=> 460, start_y => 600, next_y => 700,
+        x=>75, w=> 465, start_y => 600, next_y => 700,
         start_h => 500, next_h => 600, padding=> 5);
 
     #Goes through the exams, looking for the series that are part of the outliers studies, and creates an info page for each
@@ -3522,6 +3424,9 @@ sub genReport{
                     
                 }
                 
+            }
+            if(!$hasSeen){
+                next;
             }
             my @splitName = split('\^', $name);
             
@@ -3678,7 +3583,7 @@ sub genReport{
         
 
         #Saves the pdf depending on whether it's a single day or not.
-       
+        unless (-e $report_path){mkdir $report_path;}
         if($start==$end){
             $pdf->saveas("$report_path/DailyReport$start.pdf");
         }
@@ -3825,6 +3730,7 @@ sub genReport{
                 
             }
             close SERIES;
+            
             my @splitName = split('\^', $name);
             
             #Gets al lthe data into the table
@@ -3896,6 +3802,7 @@ sub genReport{
         
         
         close SERIES;
+        unless (-e $report_path){mkdir $report_path;}
          $pdf->saveas("$report_path/ReportFor$acc.pdf");
     }
 
@@ -4005,7 +3912,7 @@ sub calcEstDose{
        my @studyDescs = keys %kfactorStudy;
        for(@studyDescs){
             if($studyDesc =~ m/$_/g){
-                $estDose = $dlp*$kfactorStudy{$studyDesc}->[$ageIndex];
+                $estDose = $dlp*$kfactorStudy{$_}->[$ageIndex];
                 last;
             }
         }
@@ -4060,6 +3967,7 @@ sub checkFirstTwenty{
     return 0;
 }
 
+#Grabs the strucutred report if present on the PACS
 sub getStructuredReport{
     
     my $series;
@@ -4186,6 +4094,9 @@ sub getStructuredReport{
      
 }
 
+#Examines the SR and gets the specific DLP value based on irradiation event UID. 
+#Note: may need to change if SR does not include irradiation event UID, but this is not a problem here
+#because only the Siemens machines create SR and they always include this ID
 sub getSRDose{
     my $irradiationUID = $_[0];
     
@@ -4200,8 +4111,7 @@ sub getSRDose{
         if($needLeave){
             last;
         }
-        if ( $line =~ m/Irradiation Event UID/g ) {    #get birthday
-                #($value) = $line =~ /\[(.+?)\]/;
+        if ( $line =~ m/Irradiation Event UID/g ) {    #Because dose info continues after the UID, can look for this first, then immediately the info
                 
                 while(my $lineA = <SR>){
                      my $waitCTDIvol = 0;
@@ -4213,13 +4123,11 @@ sub getSRDose{
                        
                         ($value) = $lineA =~ /\[(.+?)\]/;
                         
-                        if($value eq $irradiationUID){
+                        if($value eq $irradiationUID){          #Makes sure this is the series you are looking for
                            
                             while(my $lineB = <SR>){
                                
-                                
-                                #print "lines within is $lineB\n";
-                                if($lineB =~ m/CTDIvol/){
+                                if($lineB =~ m/CTDIvol/){       #Looks that the next value under 0040,a30a will be CTDIvol
                                     
                                     $waitCTDIvol = 1;
                                 }
@@ -4231,7 +4139,7 @@ sub getSRDose{
                                    # print "CTDIvol is $value and $ctdivol\n";
                                     $waitCTDIvol = 0;
                                 }
-                                if($lineB =~ m/DLP/){
+                                if($lineB =~ m/DLP/){           #Checks so that the next value under 0040,a30a will be DLP
                                      
                                     $waitDLP = 1;
                                 }
@@ -4242,7 +4150,7 @@ sub getSRDose{
                                     $dlp = $value;
                                     $needLeave =1;
                                 }
-                                if($needLeave){
+                                if($needLeave){                 #Once have DLP and CTDIvol, don't need any other info.
                                     last;
                                 }
                                 
@@ -4255,6 +4163,6 @@ sub getSRDose{
         
     }
     print "DLP from SR: $dlp CTDI: $ctdivol \n";
-    
+    close SR;
     return($dlp, $ctdivol);
 }

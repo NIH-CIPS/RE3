@@ -1,0 +1,243 @@
+<?xml version="1.0" ?> 
+
+<Configurations> 
+
+<!--******************************************************************************************************************************************************************-->
+
+<!--GENERAL-->
+
+	<!--This is the RE3 configuration file. Its path is passed into the script as an argument. Turn off word wrap to see it best.-->
+
+	<!--The engine prints most of what it's doing, errors, etc. to the command line, in case you were wondering what it's doing. Read the first few lines of output because it has some instructions.-->
+
+	<!--until someone else takes over this project (or even after!), feel free to email questions to samweisenthal@gmail.com or wckovacs@comcast.net-->
+
+<!--******************************************************************************************************************************************************************-->
+
+
+<!--ON CONFIGURATION ERRORS...-->
+	
+	<!--If you get a cmd.exe error message like "not well-formed (invalid token) at line 51, column 0, byte 1635 at C:/Perl64/lib/XML/Parser.pm line 187" when trying to run the engine, there's a syntax error around line 51 of this file (usually a missing >)-->
+
+<!--******************************************************************************************************************************************************************-->
+
+
+<!--PATHS-->
+
+	<!--this is where logs/etc. will go. Put findscu.exe and movescu.exe here.-->
+
+		<program_path>C:\RE3\ForGithub</program_path>
+
+	<!--Perl-->
+
+		<perl_path></perl_path>
+
+	<!--CAD system that will measure scanned body volume and water-equivalent diameter. CAD by JYao@cc.nih.gov-->
+
+		<CAD_path>C:\RE3\ForGithub\x64\_projects_NIH_FatMeasurement.exe</CAD_path>
+
+	<!--The kfactors for study descriptions to convert DLP into estimated dose-->
+
+		<k_factor_file>C:/RE3/ForGithub/Kfactors.txt</k_factor_file>
+		<k_factor_body_file>C:/RE3/ForGithub/KfactorsBody.txt</k_factor_body_file>
+
+<!--******************************************************************************************************************************************************************-->
+
+
+
+<!--TITLES,IPS,PORTS-->
+	
+	<!--the production PACS-->
+
+		<aec_title></aec_title> 
+		<aec_ip></aec_ip> 
+		<aec_port></aec_port>
+		
+		
+	<!--RE3 machine-->
+		
+		
+		<aet_title></aet_title> 
+		<aet_ip></aet_ip> 
+		<aet_port></aet_port> 
+		
+		
+<!--******************************************************************************************************************************************************************-->
+
+
+<!--ENGINE SCHEDULE-->
+
+	<!--If use scheduler is set to 0, will run continuously-->
+
+		<use_scheduler>0</use_scheduler>
+
+	<!--Nightly is day_end to day_start. Daily is opposite (if nightly is set to 0, will run daily)-->
+
+		<nightly>0</nightly>
+
+			<day_start>60000</day_start>
+			<day_end>190000</day_end>
+
+	<!--Can set terminate to 1 and give a date and hour after which the engine will no longer run-->
+
+		<terminate>0</terminate>
+
+			<end_date>20140827</end_date>
+			<end_hour>23</end_hour>
+
+<!--******************************************************************************************************************************************************************-->
+
+
+
+<!--MODES-->
+
+	<!--This sets whether or not this should be used to only generate a report or to also track radiation.-->
+
+		<only_report>0</only_report>
+	
+	<!--This sets whether or not to record information into the regression data files, so generally off when only testing things-->
+
+		<update_data>1</update_data>
+
+	<!--This switch is very important. If set to 1, it will take the exams that you have processed and use them to update the model that is used to detect outliers. So, if you're rerunning an exam, for example, might want to keep this set to 0-->
+
+		<update_model>1</update_model>
+
+	<!--run body volume? If you don't run this, plans are to make it just use age and scanlength to detect outliers. If at the NIH, use it.-->
+
+		<body_volume>1</body_volume>
+
+	<!--Print slice-specific data? (will print to program_path/calcResultsSlice.csv). This will considerably increase the processing time and memory required, but is available for future MonteCarlo organ-dose estimation and research purposes. Will even only keep acquisitions-->
+
+		<slice_data>0</slice_data>
+
+	<!--list of accession numbers to process. If set to 1, list_switch will OVERRIDE the MODES options that follow it-->
+
+		<list_switch>0</list_switch>
+
+			<!--list must be in the program path. it is a list of ACCESSIONS-->
+
+				<list_accession>list.txt</list_accession>
+
+	<!--run specific exam? This switch will also OVERRIDE the MODES options that follow it -->
+
+		<run_specific_exam>0</run_specific_exam>
+
+			<specific_accession></specific_accession>
+
+
+	<!--For this option to work, both list_switch and run_specific_exam must be set to 0! Can set to run prosp (0) or retro(1)? Must indicate that running retro if giving a study date.-->
+
+		<retrospective>0</retrospective>
+
+			<!--study_date can be anything supported by DCMTK (e.g., '20140202-"(this date on), '-20140202'(I believe, this date back), "20140202-20140203"(range), "20140202"(single day)-->
+
+				<study_date>20150603-20150621</study_date>
+
+			<!--if the engine is running prospectively (on the fly), queries once every number of seconds indicated here. Generally, doesn't need to be less than 900 s-->
+
+				<time_between_queries>900</time_between_queries>
+
+	<!--Security Mode: Encrypts the data file using the following character encoding-->
+		<secureOn>0</secureOn>
+		<encoding>cp1026</encoding>
+
+
+<!--******************************************************************************************************************************************************************-->
+<!--Figures-->
+	<!--Specify whether or not you want to graph the data-->
+
+		<make_figures>1</make_figures>
+
+	<!--State whether or not you want the figures and report to only graph the material of the previous week every sunday-->
+
+		<figure_weekly>1</figure_weekly>
+
+	<!--State whether or not figures and report should be generated daily-->
+
+		<figure_daily>0</figure_daily>
+
+
+	<!--Decide whether or not to make the report only for peds patients or not (1 or 0)-->
+		<report_peds>0</report_peds>
+
+	<!--Create a report only for the specified protocol. Eg. CTChestAbdomenPelvis Enter 0 for none.-->
+		<report_protocol>0</report_protocol>
+
+	<!--If you don't want it to run weekly, you can specify the dates you want the figures to be made from, if the data is present-->
+
+		<figure_start_date>20131201</figure_start_date>
+		<figure_end_date>20131231</figure_end_date>
+
+
+	<!--Specify the cutoff age for different colors on the figures-->
+
+		<age_Cutoff>18</age_Cutoff>
+
+	<!--What the variable for DLP scatter should be (Choices are: Age, DLP, DW, Scan Length, Scan Volume, Predicted, Residual)-->
+
+		<dlp_variable>Age</dlp_variable>
+
+	<!--What the variable for the histogram should be (Choices are: Age, DLP, DW, Scan Length, Scan Volume)-->
+
+		<histogram_variable>DLP</histogram_variable>
+
+	<!--Check for duplicates or not. Useful to turn off when running from a list of accession. Obsolete now.-->
+
+		<check_Dupe_Study>0</check_Dupe_Study>
+	
+
+
+<!--******************************************************************************************************************************************************************-->
+<!--FILTERS-->
+
+	<!--This is the MINIMUM/MAXIMUM number of images in a series that the engine will process (retrieve/BV processing/dump data). It will simply ignore that series otherwise (DON'T assume that all acquisitions will be 5 mm so it's ok to only take the series with fewer than 1200 images or so). Note that the engine does not currently process topograms.-->
+		
+		<min_images_for_processing>10</min_images_for_processing>
+		<max_images_for_processing>100000</max_images_for_processing>
+
+	<!--Minimum and maximum number of images in a series for the Body Volume program to process it. If it's outside of this range, the BV and Dw values will be marked 'NoIm'-->
+		
+		<BV_min>10</BV_min>
+		<BV_max>2000</BV_max>
+
+	<!--Does not yet support multiple modalities -->
+		
+		<study_modality>CT*</study_modality>
+ 
+	<!--For specific queries, e.g. "CT Chest, Abdomen + Pelvis" just put that text unquoted in study_description. For all CT exams, use "CT*".-->
+		
+		<study_description>CT*</study_description>
+
+<!--******************************************************************************************************************************************************************-->
+
+
+<!--HOUSEKEEPING-->
+
+	<!--If this is set to 1, it uses /c in command instead of /k after child processes are finished. Eventually, will put child process into subroutine, so this option may be erased soon. Currently, it's only the 1_1 correspondencer that is spawned--> 
+
+		<console_exit>1</console_exit> 
+
+	<!--By default, the following options are 1 to save disk space. Don't change unless with good reason-->
+
+		<!--delete DICOM images after processing?-->
+
+			<delete_DICOM_im>1</delete_DICOM_im>
+
+		<!--delete dumped data after processing?-->
+
+			<delete_dumped_data>1</delete_dumped_data>
+
+<!--******************************************************************************************************************************************************************-->
+<!--Exceptions-->
+	
+	<!--A list of exceptions, if a protocol has a specified name, they'll be put in the specifiedmodel-->
+
+		<exceptions>C:/RE3/Exceptions.txt</exceptions>
+
+	<!--A list of protocol names that don't put up all their scans onto the PACS-->
+
+		<missing_acq>C:/RE3/MissingAcq.txt</missing_acq>
+<!--******************************************************************************************************************************************************************-->
+
+</Configurations>
