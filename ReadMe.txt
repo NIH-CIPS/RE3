@@ -13,7 +13,9 @@ interested in learning about bugs in the software, no software support of any ki
 be provided. If it is used in research, a citation to the publication* is required in 
 any publications of presentations.
 
-S. J. Weisenthal, L. Folio, W. Kovacs, A. Seff, V. Derderian, R. M. Summers, and J. Yao, "Open-Source Radiation Exposure Extraction Engine (RE3) with Patient-Specific Outlier Detection," J Digit Imaging, Dec 7 2015.
+S. J. Weisenthal, L. Folio, W. Kovacs, A. Seff, V. Derderian, R. M. Summers, and J. Yao,
+"Open-Source Radiation Exposure Extraction Engine (RE3) with Patient-Specific Outlier Detection,"
+J Digit Imaging, Dec 7 2015.
 
 (1) Description
 ---------------
